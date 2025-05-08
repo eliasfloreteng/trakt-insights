@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Trakt.tv History Analyzer & Recommender</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      /* Optional: Custom scrollbar for a bit more elegance */
+      ::-webkit-scrollbar {
+        width: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: #f1f1f1;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #888;
+        border-radius: 4px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #555;
+      }
+      .chart-bar {
+        transition: width 0.5s ease-out; /* Changed to width for horizontal bars */
+      }
+      #aiRecommendations li {
+        margin-bottom: 0.5rem;
+      }
+      #aiRecommendations strong {
+        color: #4f46e5;
+      } /* Indigo-600 for movie titles */
+    </style>
+  </head>
+  <body class="bg-slate-100 text-slate-800 font-sans p-4 md:p-8">
+    <div class="container mx-auto max-w-5xl">
+      <header class="mb-8 text-center">
+        <h1 class="text-4xl font-bold text-indigo-600">
+          Trakt.tv Analyzer & Recommender
+        </h1>
+        <p class="text-slate-600 mt-2">
+          Upload your `history.json` and get AI-powered movie suggestions.
+        </p>
+      </header>
+
+      <!-- API Key Input -->
+      <div id="apiKeySection" class="mb-6 bg-white p-6 rounded-lg shadow-lg">
+        <h2 class="text-xl font-semibold text-indigo-700 mb-3">
+          OpenAI API Key
+        </h2>
+        <p class="text-sm text-slate-600 mb-2">
+          Enter your OpenAI API key to enable movie recommendations. It will be
+          saved locally in your browser.
+        </p>
+        <div class="flex items-center space-x-2">
+          <input
+            type="password"
+            id="apiKeyInput"
+            placeholder="sk-..."
+            class="flex-grow p-2 border border-slate-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+          />
+          <button
+            id="saveApiKeyButton"
+            class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-50"
+          >
+            Save Key
+          </button>
+        </div>
+        <p id="apiKeyStatus" class="text-xs text-slate-500 mt-1"></p>
+      </div>
+
+      <div class="mb-8 bg-white p-6 rounded-lg shadow-lg">
+        <label
+          for="fileInput"
+          class="block text-sm font-medium text-slate-700 mb-2"
+          >Upload `history.json`:</label
+        >
+        <input
+          type="file"
+          id="fileInput"
+          accept=".json"
+          class="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer"
+        />
+        <p id="fileName" class="text-xs text-slate-500 mt-1"></p>
+      </div>
+
+      <div id="loading" class="hidden text-center my-10">
+        <p class="text-xl text-indigo-600 animate-pulse">
+          Processing your data...
+        </p>
+      </div>
+
+      <div
+        id="error"
+        class="hidden bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-6"
+        role="alert"
+      >
+        <strong class="font-bold">Error!</strong>
+        <span class="block sm:inline" id="errorMessage"></span>
+      </div>
+
+      <div id="results" class="hidden space-y-8">
+        <!-- Overall Stats -->
+        <section class="bg-white p-6 rounded-lg shadow-lg">
+          <h2 class="text-2xl font-semibold text-indigo-700 mb-4 border-b pb-2">
+            Overall Statistics
+          </h2>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+            <div>
+              <p class="text-3xl font-bold text-indigo-600" id="totalItems"></p>
+              <p class="text-sm text-slate-500">Total Items Watched</p>
+            </div>
+            <div>
+              <p
+                class="text-3xl font-bold text-indigo-600"
+                id="totalMovies"
+              ></p>
+              <p class="text-sm text-slate-500">Unique Movies</p>
+            </div>
+            <div>
+              <p class="text-3xl font-bold text-indigo-600" id="totalShows"></p>
+              <p class="text-sm text-slate-500">Unique Shows</p>
+            </div>
+            <div>
+              <p
+                class="text-lg font-semibold text-indigo-600"
+                id="dateRange"
+              ></p>
+              <p class="text-sm text-slate-500">Date Range</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- AI Recommendations Section -->
+        <section
+          id="aiRecommendationsSection"
+          class="bg-white p-6 rounded-lg shadow-lg hidden"
+        >
+          <h2 class="text-2xl font-semibold text-indigo-700 mb-4 border-b pb-2">
+            AI Movie Recommendations
+          </h2>
+          <button
+            id="getAiRecommendationsButton"
+            class="mb-4 bg-teal-500 hover:bg-teal-600 text-white font-semibold py-2 px-4 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-opacity-50 disabled:opacity-50"
+            disabled
+          >
+            Suggest Movies
+          </button>
+          <div id="aiLoading" class="hidden text-center my-6">
+            <p class="text-lg text-teal-600 animate-pulse">
+              Getting recommendations from AI...
+            </p>
+          </div>
+          <div
+            id="aiError"
+            class="hidden bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4"
+            role="alert"
+          >
+            <strong class="font-bold">AI Error!</strong>
+            <span class="block sm:inline" id="aiErrorMessage"></span>
+          </div>
+          <ul
+            id="aiRecommendations"
+            class="list-disc list-inside text-slate-700 pl-2"
+          >
+            <!-- Recommendations will be populated here -->
+          </ul>
+        </section>
+
+        <!-- Most Watched -->
+        <section class="bg-white p-6 rounded-lg shadow-lg">
+          <h2 class="text-2xl font-semibold text-indigo-700 mb-4 border-b pb-2">
+            Most Watched
+          </h2>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <h3 class="text-lg font-medium text-slate-700 mb-1">Top Movie</h3>
+              <p
+                class="text-xl font-semibold text-indigo-600"
+                id="mostWatchedMovie"
+              >
+                N/A
+              </p>
+              <p class="text-xs text-slate-500" id="mostWatchedMovieCount"></p>
+            </div>
+            <div>
+              <h3 class="text-lg font-medium text-slate-700 mb-1">Top Show</h3>
+              <p
+                class="text-xl font-semibold text-indigo-600"
+                id="mostWatchedShow"
+              >
+                N/A
+              </p>
+              <p class="text-xs text-slate-500" id="mostWatchedShowCount"></p>
+            </div>
+          </div>
+        </section>
+
+        <!-- Content Type Breakdown -->
+        <section class="bg-white p-6 rounded-lg shadow-lg">
+          <h2 class="text-2xl font-semibold text-indigo-700 mb-4 border-b pb-2">
+            Content Breakdown
+          </h2>
+          <div class="flex items-center justify-around">
+            <div>
+              <p class="text-3xl font-bold text-indigo-600" id="movieCount"></p>
+              <p class="text-sm text-slate-500">Movies Watched</p>
+            </div>
+            <div>
+              <p
+                class="text-3xl font-bold text-indigo-600"
+                id="episodeCount"
+              ></p>
+              <p class="text-sm text-slate-500">Episodes Watched</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- Watch Patterns -->
+        <section class="bg-white p-6 rounded-lg shadow-lg">
+          <h2 class="text-2xl font-semibold text-indigo-700 mb-4 border-b pb-2">
+            Watch Patterns
+          </h2>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div>
+              <h3 class="text-lg font-medium text-slate-700 mb-2 text-center">
+                By Day of Week
+              </h3>
+              <div id="dayOfWeekChart" class="space-y-1"></div>
+            </div>
+            <div>
+              <h3 class="text-lg font-medium text-slate-700 mb-2 text-center">
+                By Hour of Day (UTC)
+              </h3>
+              <div id="hourOfDayChart" class="space-y-1"></div>
+            </div>
+            <div>
+              <h3 class="text-lg font-medium text-slate-700 mb-2 text-center">
+                By Month
+              </h3>
+              <div id="monthChart" class="space-y-1"></div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <footer class="text-center mt-12 text-sm text-slate-500">
+        <p>
+          Your Trakt data is processed locally. Movie titles are sent to OpenAI
+          for recommendations if you use that feature.
+        </p>
+      </footer>
+    </div>
+
+    <script>
+      const OPENAI_API_KEY_STORAGE = "traktAnalyzer_openAiApiKey"
+      const OPENAI_CHAT_ENDPOINT = "https://api.openai.com/v1/chat/completions"
+
+      // DOM Elements
+      const fileInput = document.getElementById("fileInput")
+      const fileNameDisplay = document.getElementById("fileName")
+      const resultsDiv = document.getElementById("results")
+      const loadingDiv = document.getElementById("loading")
+      const errorDiv = document.getElementById("error")
+      const errorMessageSpan = document.getElementById("errorMessage")
+
+      const apiKeyInput = document.getElementById("apiKeyInput")
+      const saveApiKeyButton = document.getElementById("saveApiKeyButton")
+      const apiKeyStatus = document.getElementById("apiKeyStatus")
+
+      const aiRecommendationsSection = document.getElementById(
+        "aiRecommendationsSection"
+      )
+      const getAiRecommendationsButton = document.getElementById(
+        "getAiRecommendationsButton"
+      )
+      const aiLoadingDiv = document.getElementById("aiLoading")
+      const aiErrorDiv = document.getElementById("aiError")
+      const aiErrorMessageSpan = document.getElementById("aiErrorMessage")
+      const aiRecommendationsList = document.getElementById("aiRecommendations")
+
+      const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+      const MONTH_NAMES = [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
+      ]
+
+      let processedMovieTitles = [] // To store movie titles for AI recommendations
+
+      // --- API Key Management ---
+      function loadApiKey() {
+        const savedKey = localStorage.getItem(OPENAI_API_KEY_STORAGE)
+        if (savedKey) {
+          apiKeyInput.value = savedKey
+          apiKeyStatus.textContent = "API Key loaded from local storage."
+          apiKeyInput.type = "password" // Keep it masked
+        }
+      }
+
+      saveApiKeyButton.addEventListener("click", () => {
+        const key = apiKeyInput.value.trim()
+        if (key) {
+          localStorage.setItem(OPENAI_API_KEY_STORAGE, key)
+          apiKeyStatus.textContent =
+            "API Key saved! You can now get AI recommendations after uploading a file."
+          apiKeyStatus.className = "text-xs text-green-600 mt-1"
+          apiKeyInput.type = "password"
+        } else {
+          apiKeyStatus.textContent = "Please enter a valid API Key."
+          apiKeyStatus.className = "text-xs text-red-600 mt-1"
+        }
+      })
+
+      // --- File Handling & Main Processing ---
+      fileInput.addEventListener("change", handleFile)
+
+      function handleFile(event) {
+        const file = event.target.files[0]
+        if (!file) {
+          resultsDiv.classList.add("hidden")
+          aiRecommendationsSection.classList.add("hidden")
+          getAiRecommendationsButton.disabled = true
+          fileNameDisplay.textContent = ""
+          return
+        }
+
+        fileNameDisplay.textContent = `Selected: ${file.name}`
+        resultsDiv.classList.add("hidden")
+        aiRecommendationsSection.classList.add("hidden")
+        getAiRecommendationsButton.disabled = true
+        errorDiv.classList.add("hidden")
+        loadingDiv.classList.remove("hidden")
+        processedMovieTitles = [] // Reset
+
+        const reader = new FileReader()
+        reader.onload = function (e) {
+          try {
+            const historyData = JSON.parse(e.target.result)
+            if (!Array.isArray(historyData)) {
+              throw new Error("Invalid JSON format: Expected an array.")
+            }
+            if (historyData.length === 0) {
+              throw new Error("The history file is empty.")
+            }
+            processAndDisplayData(historyData)
+            aiRecommendationsSection.classList.remove("hidden")
+            getAiRecommendationsButton.disabled = false // Enable button after successful processing
+          } catch (err) {
+            showError(`Error parsing JSON: ${err.message}`)
+          } finally {
+            loadingDiv.classList.add("hidden")
+          }
+        }
+        reader.onerror = function () {
+          showError("Error reading file.")
+          loadingDiv.classList.add("hidden")
+        }
+        reader.readAsText(file)
+      }
+
+      function showError(message) {
+        errorMessageSpan.textContent = message
+        errorDiv.classList.remove("hidden")
+        resultsDiv.classList.add("hidden")
+        aiRecommendationsSection.classList.add("hidden")
+        getAiRecommendationsButton.disabled = true
+      }
+
+      function processAndDisplayData(data) {
+        if (!data || data.length === 0) {
+          showError("No data to process.")
+          return
+        }
+
+        resultsDiv.classList.remove("hidden")
+        errorDiv.classList.add("hidden")
+
+        let totalItems = data.length
+        let movieWatches = 0
+        let episodeWatches = 0
+
+        const movieCounts = {}
+        const showCounts = {}
+        const uniqueMovies = new Set()
+        const uniqueShows = new Set()
+
+        const watchesByDay = Array(7).fill(0)
+        const watchesByHour = Array(24).fill(0)
+        const watchesByMonth = Array(12).fill(0)
+
+        let minDate = new Date(data[0].watched_at)
+        let maxDate = new Date(data[0].watched_at)
+
+        data.forEach((item) => {
+          const watchedAt = new Date(item.watched_at)
+          if (watchedAt < minDate) minDate = watchedAt
+          if (watchedAt > maxDate) maxDate = watchedAt
+
+          watchesByDay[watchedAt.getUTCDay()]++
+          watchesByHour[watchedAt.getUTCHours()]++
+          watchesByMonth[watchedAt.getUTCMonth()]++
+
+          if (item.type === "movie" && item.movie) {
+            movieWatches++
+            const title = item.movie.title
+            movieCounts[title] = (movieCounts[title] || 0) + 1
+            uniqueMovies.add(title)
+          } else if (item.type === "episode" && item.show) {
+            // Assuming 'episode' type for shows
+            episodeWatches++
+            const title = item.show.title
+            showCounts[title] = (showCounts[title] || 0) + 1
+            uniqueShows.add(title)
+          }
+        })
+
+        processedMovieTitles = Array.from(uniqueMovies) // Store for AI
+
+        // Overall Stats
+        document.getElementById("totalItems").textContent = totalItems
+        document.getElementById("totalMovies").textContent = uniqueMovies.size
+        document.getElementById("totalShows").textContent = uniqueShows.size
+        const dateRangeFormat = {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+        }
+        document.getElementById(
+          "dateRange"
+        ).textContent = `${minDate.toLocaleDateString(
+          undefined,
+          dateRangeFormat
+        )} - ${maxDate.toLocaleDateString(undefined, dateRangeFormat)}`
+
+        // Content Breakdown
+        document.getElementById("movieCount").textContent = movieWatches
+        document.getElementById("episodeCount").textContent = episodeWatches
+
+        // Most Watched
+        const [mostWatchedMovie, movieWatchCount] =
+          findMostFrequent(movieCounts)
+        const [mostWatchedShow, showWatchCount] = findMostFrequent(showCounts)
+
+        document.getElementById("mostWatchedMovie").textContent =
+          mostWatchedMovie || "N/A"
+        document.getElementById("mostWatchedMovieCount").textContent =
+          mostWatchedMovie ? `${movieWatchCount} watches` : ""
+
+        document.getElementById("mostWatchedShow").textContent =
+          mostWatchedShow || "N/A" // Corrected ID
+        document.getElementById("mostWatchedShowCount").textContent =
+          mostWatchedShow ? `${showWatchCount} watches (episodes)` : ""
+
+        // Watch Patterns (Charts)
+        renderBarChart("dayOfWeekChart", DAY_NAMES, watchesByDay)
+        renderBarChart(
+          "hourOfDayChart",
+          Array.from({ length: 24 }, (_, i) => `${i}:00`),
+          watchesByHour
+        )
+        renderBarChart("monthChart", MONTH_NAMES, watchesByMonth)
+      }
+
+      function findMostFrequent(counts) {
+        let maxItem = null
+        let maxCount = 0
+        for (const item in counts) {
+          if (counts[item] > maxCount) {
+            maxCount = counts[item]
+            maxItem = item
+          }
+        }
+        return [maxItem, maxCount]
+      }
+
+      function renderBarChart(containerId, labels, data) {
+        const container = document.getElementById(containerId)
+        container.innerHTML = ""
+        const maxDataValue = Math.max(...data, 1)
+
+        labels.forEach((label, index) => {
+          const value = data[index]
+          const percentage = (value / maxDataValue) * 100
+
+          const itemDiv = document.createElement("div")
+          itemDiv.className = "flex items-center text-xs mb-1"
+
+          const labelDiv = document.createElement("div")
+          labelDiv.className =
+            "w-12 text-right pr-2 text-slate-600 flex-shrink-0"
+          labelDiv.textContent = label
+
+          const barContainerDiv = document.createElement("div")
+          barContainerDiv.className =
+            "flex-1 bg-slate-200 rounded-sm h-5 overflow-hidden"
+
+          const barDiv = document.createElement("div")
+          barDiv.className =
+            "chart-bar bg-indigo-500 h-full text-white text-xs flex items-center justify-end pr-1"
+          barDiv.style.width = `0%` // Start at 0 for animation
+          setTimeout(() => (barDiv.style.width = `${percentage}%`), 10)
+
+          const valueDiv = document.createElement("div")
+          valueDiv.className =
+            "w-8 text-left pl-2 font-medium text-indigo-700 flex-shrink-0"
+          valueDiv.textContent = value
+
+          barContainerDiv.appendChild(barDiv)
+          itemDiv.appendChild(labelDiv)
+          itemDiv.appendChild(barContainerDiv)
+          itemDiv.appendChild(valueDiv)
+          container.appendChild(itemDiv)
+        })
+      }
+
+      // --- OpenAI Recommendations ---
+      getAiRecommendationsButton.addEventListener(
+        "click",
+        fetchOpenAiRecommendations
+      )
+
+      async function fetchOpenAiRecommendations() {
+        const apiKey = localStorage.getItem(OPENAI_API_KEY_STORAGE)
+        if (!apiKey) {
+          showAiError("OpenAI API Key not found. Please save your key first.")
+          return
+        }
+
+        if (processedMovieTitles.length === 0) {
+          showAiError(
+            "No movie data to base recommendations on. Please upload and process your Trakt history."
+          )
+          return
+        }
+
+        aiLoadingDiv.classList.remove("hidden")
+        aiErrorDiv.classList.add("hidden")
+        aiRecommendationsList.innerHTML = "" // Clear previous recommendations
+
+        // Prepare a subset of movie titles (e.g., last 20 unique movies or a random sample)
+        // For simplicity, let's take up to 30 unique movies from the start of the processed list
+        const moviesForPrompt = processedMovieTitles
+        const promptMovieList = moviesForPrompt
+          .map((title) => `- ${title}`)
+          .join("\n")
+
+        const prompt = `Based on the following list of movies I've watched, please suggest 5 to 7 new movies that I might find interesting.
+For each suggestion, provide the movie title and a very brief (1-2 sentence) explanation of why it's a good recommendation based on my history.
+Do not suggest any movies that are already in my watched list below. Format each suggestion starting with the movie title in bold, followed by the explanation and keep everything on the same line.
+
+My watched movies:
+${promptMovieList}`
+
+        try {
+          const response = await fetch(OPENAI_CHAT_ENDPOINT, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
+              model: "gpt-4o",
+              messages: [
+                {
+                  role: "system",
+                  content: "You are a helpful movie recommendation assistant.",
+                },
+                { role: "user", content: prompt },
+              ],
+              max_tokens: 300, // Increased for potentially longer explanations
+              temperature: 0.7,
+            }),
+          })
+
+          if (!response.ok) {
+            const errorData = await response.json()
+            throw new Error(
+              `OpenAI API Error: ${response.status} - ${
+                errorData.error?.message || "Unknown error"
+              }`
+            )
+          }
+
+          const data = await response.json()
+
+          if (
+            data.choices &&
+            data.choices.length > 0 &&
+            data.choices[0].message
+          ) {
+            const recommendationsText = data.choices[0].message.content
+            displayRecommendations(recommendationsText)
+          } else {
+            throw new Error("No recommendations received from OpenAI.")
+          }
+        } catch (error) {
+          showAiError(error.message)
+        } finally {
+          aiLoadingDiv.classList.add("hidden")
+        }
+      }
+
+      function displayRecommendations(recommendationsText) {
+        aiRecommendationsList.innerHTML = "" // Clear previous
+        // Attempt to parse recommendations. This is a simple parser; might need refinement.
+        // Assuming recommendations are line-separated, and titles might be bolded by markdown-like syntax.
+        const lines = recommendationsText
+          .split("\n")
+          .filter((line) => line.trim() !== "")
+
+        lines.forEach((line) => {
+          const listItem = document.createElement("li")
+          // Basic parsing: try to bold movie titles if they start with ** or are followed by :
+          line = line.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>") // Handles **Title**
+          // If no markdown bold, try to bold up to a colon if present
+          if (!line.includes("<strong>") && line.includes(":")) {
+            line = line.replace(/^(.*?):/, "<strong>$1</strong>:")
+          }
+          listItem.innerHTML = line // Use innerHTML to render <strong> tags
+          aiRecommendationsList.appendChild(listItem)
+        })
+
+        if (aiRecommendationsList.children.length === 0) {
+          aiRecommendationsList.innerHTML =
+            '<li>No specific recommendations parsed. AI response: <pre class="whitespace-pre-wrap text-sm bg-slate-50 p-2 rounded">' +
+            recommendationsText +
+            "</pre></li>"
+        }
+      }
+
+      function showAiError(message) {
+        aiErrorMessageSpan.textContent = message
+        aiErrorDiv.classList.remove("hidden")
+      }
+
+      // --- Initial Load ---
+      document.addEventListener("DOMContentLoaded", () => {
+        loadApiKey()
+      })
+    </script>
+  </body>
+</html>
