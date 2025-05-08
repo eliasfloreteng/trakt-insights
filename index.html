@@ -81,6 +81,12 @@
           class="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer"
         />
         <p id="fileName" class="text-xs text-slate-500 mt-1"></p>
+        <button
+          id="clearHistoryButton"
+          class="mt-2 text-sm bg-red-500 hover:bg-red-600 text-white font-semibold py-1 px-3 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50 hidden"
+        >
+          Clear Saved History
+        </button>
       </div>
 
       <div id="loading" class="hidden text-center my-10">
@@ -253,6 +259,7 @@
 
     <script>
       const OPENAI_API_KEY_STORAGE = "traktAnalyzer_openAiApiKey"
+      const TRAKT_HISTORY_DATA_STORAGE = "traktAnalyzer_historyData" // Added for history
       const OPENAI_CHAT_ENDPOINT = "https://api.openai.com/v1/chat/completions"
 
       // DOM Elements
@@ -266,6 +273,7 @@
       const apiKeyInput = document.getElementById("apiKeyInput")
       const saveApiKeyButton = document.getElementById("saveApiKeyButton")
       const apiKeyStatus = document.getElementById("apiKeyStatus")
+      const clearHistoryButton = document.getElementById("clearHistoryButton") // Added button
 
       const aiRecommendationsSection = document.getElementById(
         "aiRecommendationsSection"
@@ -344,18 +352,23 @@
         const reader = new FileReader()
         reader.onload = function (e) {
           try {
-            const historyData = JSON.parse(e.target.result)
+            const historyJsonString = e.target.result
+            const historyData = JSON.parse(historyJsonString)
             if (!Array.isArray(historyData)) {
               throw new Error("Invalid JSON format: Expected an array.")
             }
             if (historyData.length === 0) {
               throw new Error("The history file is empty.")
             }
+            localStorage.setItem(TRAKT_HISTORY_DATA_STORAGE, historyJsonString) // Save to localStorage
             processAndDisplayData(historyData)
             aiRecommendationsSection.classList.remove("hidden")
-            getAiRecommendationsButton.disabled = false // Enable button after successful processing
+            getAiRecommendationsButton.disabled = false
+            clearHistoryButton.classList.remove("hidden") // Show clear button
           } catch (err) {
             showError(`Error parsing JSON: ${err.message}`)
+            localStorage.removeItem(TRAKT_HISTORY_DATA_STORAGE) // Clear if error during new load
+            clearHistoryButton.classList.add("hidden")
           } finally {
             loadingDiv.classList.add("hidden")
           }
@@ -363,6 +376,7 @@
         reader.onerror = function () {
           showError("Error reading file.")
           loadingDiv.classList.add("hidden")
+          clearHistoryButton.classList.add("hidden")
         }
         reader.readAsText(file)
       }
@@ -373,6 +387,7 @@
         resultsDiv.classList.add("hidden")
         aiRecommendationsSection.classList.add("hidden")
         getAiRecommendationsButton.disabled = true
+        clearHistoryButton.classList.add("hidden") // Hide clear button on error
       }
 
       function processAndDisplayData(data) {
@@ -642,9 +657,75 @@ ${promptMovieList}`
         aiErrorDiv.classList.remove("hidden")
       }
 
+      // --- Clear Saved History ---
+      clearHistoryButton.addEventListener("click", () => {
+        localStorage.removeItem(TRAKT_HISTORY_DATA_STORAGE)
+        resultsDiv.classList.add("hidden")
+        aiRecommendationsSection.classList.add("hidden")
+        getAiRecommendationsButton.disabled = true
+        fileNameDisplay.textContent =
+          "Saved history cleared. Upload a new file."
+        fileInput.value = "" // Reset file input
+        processedMovieTitles = []
+        clearHistoryButton.classList.add("hidden")
+
+        // Clear displayed data
+        document.getElementById("totalItems").textContent = ""
+        document.getElementById("totalMovies").textContent = ""
+        document.getElementById("totalShows").textContent = ""
+        document.getElementById("dateRange").textContent = ""
+        document.getElementById("movieCount").textContent = ""
+        document.getElementById("episodeCount").textContent = ""
+        document.getElementById("mostWatchedMovie").textContent = "N/A"
+        document.getElementById("mostWatchedMovieCount").textContent = ""
+        document.getElementById("mostWatchedShow").textContent = "N/A"
+        document.getElementById("mostWatchedShowCount").textContent = ""
+        document.getElementById("dayOfWeekChart").innerHTML = ""
+        document.getElementById("hourOfDayChart").innerHTML = ""
+        document.getElementById("monthChart").innerHTML = ""
+        aiRecommendationsList.innerHTML = ""
+        errorDiv.classList.add("hidden") // Hide any previous errors
+        alert("Saved Trakt history has been cleared.")
+      })
+
+      // --- Load Saved History on Page Load ---
+      function loadSavedHistoryData() {
+        const savedDataString = localStorage.getItem(TRAKT_HISTORY_DATA_STORAGE)
+        if (savedDataString) {
+          loadingDiv.classList.remove("hidden")
+          errorDiv.classList.add("hidden")
+          processedMovieTitles = []
+
+          try {
+            const historyData = JSON.parse(savedDataString)
+            if (!Array.isArray(historyData) || historyData.length === 0) {
+              throw new Error(
+                "Saved history data is invalid or empty. Please upload again."
+              )
+            }
+            processAndDisplayData(historyData)
+            fileNameDisplay.textContent =
+              "Displaying previously saved Trakt history."
+            aiRecommendationsSection.classList.remove("hidden")
+            getAiRecommendationsButton.disabled = false
+            clearHistoryButton.classList.remove("hidden") // Show clear button
+          } catch (err) {
+            showError(`Error loading saved history: ${err.message}`)
+            localStorage.removeItem(TRAKT_HISTORY_DATA_STORAGE) // Clear corrupted data
+            clearHistoryButton.classList.add("hidden")
+          } finally {
+            loadingDiv.classList.add("hidden")
+          }
+        } else {
+          fileNameDisplay.textContent = "Upload your `history.json` to begin."
+          clearHistoryButton.classList.add("hidden")
+        }
+      }
+
       // --- Initial Load ---
       document.addEventListener("DOMContentLoaded", () => {
         loadApiKey()
+        loadSavedHistoryData() // Load saved history
       })
     </script>
   </body>
